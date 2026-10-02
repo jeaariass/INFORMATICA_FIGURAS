@@ -4,9 +4,12 @@
  */
 package my.figuras;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import javax.swing.DefaultListModel;
+import javax.swing.JFileChooser;
 import javax.swing.JOptionPane;
 
 /**
@@ -63,8 +66,7 @@ public class FigurasUI extends javax.swing.JFrame {
     private int maximoPuntos() {
         return switch (tipoSeleccionado()) {
             case "Punto", "Círculo" -> 1;   // en el círculo el único punto es el centro
-            case "Triángulo" -> 3;
-            default -> Integer.MAX_VALUE;
+            default -> Integer.MAX_VALUE;   // Línea (mínimo 2) y Polígono (mínimo 3) sin tope
         };
     }
 
@@ -91,6 +93,64 @@ public class FigurasUI extends javax.swing.JFrame {
         }
     }
 
+    /**
+     * Carga una "cartera de puntos" desde un archivo de texto: un punto por línea,
+     * en formato x,y (con punto decimal, por ejemplo 3.5,-2). Reemplaza los puntos
+     * que hubiera y, si el número de puntos es válido para el tipo seleccionado,
+     * crea la figura de inmediato (con lo cual también se revisa la convexidad).
+     */
+    private void cargarPuntosDesdeArchivo() {
+        JFileChooser selector = new JFileChooser();
+        selector.setDialogTitle("Selecciona el archivo de puntos (una línea por punto, formato x,y)");
+        if (selector.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        List<Punto> puntosLeidos = new ArrayList<>();
+        try {
+            List<String> lineas = Files.readAllLines(selector.getSelectedFile().toPath());
+            for (int i = 0; i < lineas.size(); i++) {
+                String linea = lineas.get(i).trim();
+                if (linea.isEmpty()) {
+                    continue;
+                }
+                String[] partes = linea.split(",");
+                if (partes.length != 2) {
+                    JOptionPane.showMessageDialog(this, "Línea " + (i + 1) + " inválida: \"" + linea
+                            + "\". Usa el formato x,y (ejemplo: 3.5,-2).");
+                    return;
+                }
+                try {
+                    double x = Double.parseDouble(partes[0].trim());
+                    double y = Double.parseDouble(partes[1].trim());
+                    puntosLeidos.add(new Punto(x, y));
+                } catch (NumberFormatException ex) {
+                    JOptionPane.showMessageDialog(this, "Línea " + (i + 1) + " inválida: \"" + linea
+                            + "\". Los dos valores deben ser números (usa punto decimal, no coma).");
+                    return;
+                }
+            }
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this, "No se pudo leer el archivo: " + ex.getMessage());
+            return;
+        }
+        if (puntosLeidos.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "El archivo no tiene puntos válidos.");
+            return;
+        }
+        if (puntosLeidos.size() > maximoPuntos()) {
+            JOptionPane.showMessageDialog(this, tipoSeleccionado() + " admite máximo " + maximoPuntos()
+                    + " punto(s), y el archivo trae " + puntosLeidos.size() + ".");
+            return;
+        }
+        limpiarPuntos();
+        for (Punto p : puntosLeidos) {
+            puntos.add(p);
+            modeloPuntos.addElement(puntos.size() + ". " + formatear(p));
+        }
+        dibujo().repaint();
+        crearFigura();
+    }
+
     private void crearFigura() {
         try {
             figuraActual = switch (tipoSeleccionado()) {
@@ -99,11 +159,11 @@ public class FigurasUI extends javax.swing.JFrame {
                     yield puntos.get(0);
                 }
                 case "Línea" -> new Linea(puntos);
-                case "Triángulo" -> {
-                    exigirPuntos(3);
-                    yield new Triangulo(puntos.get(0), puntos.get(1), puntos.get(2));
-                }
-                case "Polígono" -> new Poligono(puntos);
+                // con exactamente 3 puntos, un "Polígono" ES un triángulo: se construye
+                // el objeto Triangulo (misma validación de convexidad, área por Herón).
+                case "Polígono" -> puntos.size() == 3
+                        ? new Triangulo(puntos.get(0), puntos.get(1), puntos.get(2))
+                        : new Poligono(puntos);
                 case "Círculo" -> {
                     exigirPuntos(1);
                     yield new Circulo(puntos.get(0), leerNumero(txtRadio, "Radio"));
@@ -194,6 +254,7 @@ public class FigurasUI extends javax.swing.JFrame {
         lblPuntos = new javax.swing.JLabel();
         scrollPuntos = new javax.swing.JScrollPane();
         lstPuntos = new javax.swing.JList<>();
+        btnCargarArchivo = new javax.swing.JButton();
         btnCrearFigura = new javax.swing.JButton();
         lblDibujo = new javax.swing.JLabel();
         panelDibujo = new PanelDibujo();
@@ -207,7 +268,7 @@ public class FigurasUI extends javax.swing.JFrame {
         setDefaultCloseOperation(javax.swing.WindowConstants.EXIT_ON_CLOSE);
         setTitle("Figuras Geométricas");
 
-        panelPrincipal.setPreferredSize(new java.awt.Dimension(760, 560));
+        panelPrincipal.setPreferredSize(new java.awt.Dimension(760, 600));
         panelPrincipal.setLayout(null);
 
         lblTitulo.setHorizontalAlignment(javax.swing.SwingConstants.CENTER);
@@ -219,7 +280,7 @@ public class FigurasUI extends javax.swing.JFrame {
         panelPrincipal.add(lblTipo);
         lblTipo.setBounds(20, 50, 110, 25);
 
-        cboTipo.setModel(new javax.swing.DefaultComboBoxModel<>(new String[] { "Punto", "Línea", "Triángulo", "Polígono", "Círculo" }));
+        cboTipo.setModel(new javax.swing.DefaultComboBoxModel<>(new String[] { "Punto", "Línea", "Polígono", "Círculo" }));
         cboTipo.addActionListener(this::cboTipoActionPerformed);
         panelPrincipal.add(cboTipo);
         cboTipo.setBounds(135, 50, 150, 25);
@@ -251,7 +312,7 @@ public class FigurasUI extends javax.swing.JFrame {
         btnAgregarPunto.setText("Agregar punto");
         btnAgregarPunto.addActionListener(this::btnAgregarPuntoActionPerformed);
         panelPrincipal.add(btnAgregarPunto);
-        btnAgregarPunto.setBounds(20, 185, 150, 28);
+        btnAgregarPunto.setBounds(70, 190, 150, 28);
 
         lblPuntos.setText("Puntos agregados:");
         panelPrincipal.add(lblPuntos);
@@ -262,10 +323,15 @@ public class FigurasUI extends javax.swing.JFrame {
         panelPrincipal.add(scrollPuntos);
         scrollPuntos.setBounds(20, 248, 240, 150);
 
+        btnCargarArchivo.setText("Cargar archivo...");
+        btnCargarArchivo.addActionListener(this::btnCargarArchivoActionPerformed);
+        panelPrincipal.add(btnCargarArchivo);
+        btnCargarArchivo.setBounds(20, 410, 150, 28);
+
         btnCrearFigura.setText("Crear figura");
         btnCrearFigura.addActionListener(this::btnCrearFiguraActionPerformed);
         panelPrincipal.add(btnCrearFigura);
-        btnCrearFigura.setBounds(20, 410, 150, 28);
+        btnCrearFigura.setBounds(20, 448, 150, 28);
 
         lblDibujo.setText("ÁREA DE DIBUJO");
         panelPrincipal.add(lblDibujo);
@@ -278,29 +344,29 @@ public class FigurasUI extends javax.swing.JFrame {
 
         lblResultados.setText("RESULTADOS");
         panelPrincipal.add(lblResultados);
-        lblResultados.setBounds(20, 455, 200, 20);
+        lblResultados.setBounds(20, 493, 200, 20);
 
         lblArea.setText("Área: —");
         panelPrincipal.add(lblArea);
-        lblArea.setBounds(20, 480, 160, 20);
+        lblArea.setBounds(20, 518, 160, 20);
 
         lblPerimetro.setText("Perímetro: —");
         panelPrincipal.add(lblPerimetro);
-        lblPerimetro.setBounds(190, 480, 180, 20);
+        lblPerimetro.setBounds(190, 518, 180, 20);
 
         lblLongitud.setText("Longitud: —");
         panelPrincipal.add(lblLongitud);
-        lblLongitud.setBounds(380, 480, 360, 20);
+        lblLongitud.setBounds(380, 518, 360, 20);
 
         btnLimpiar.setText("Limpiar");
         btnLimpiar.addActionListener(this::btnLimpiarActionPerformed);
         panelPrincipal.add(btnLimpiar);
-        btnLimpiar.setBounds(20, 515, 100, 28);
+        btnLimpiar.setBounds(20, 553, 100, 28);
 
         btnSalir.setText("Salir");
         btnSalir.addActionListener(this::btnSalirActionPerformed);
         panelPrincipal.add(btnSalir);
-        btnSalir.setBounds(640, 515, 100, 28);
+        btnSalir.setBounds(640, 553, 100, 28);
 
         getContentPane().add(panelPrincipal, java.awt.BorderLayout.CENTER);
 
@@ -316,6 +382,10 @@ public class FigurasUI extends javax.swing.JFrame {
     private void btnAgregarPuntoActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnAgregarPuntoActionPerformed
         agregarPunto();
     }//GEN-LAST:event_btnAgregarPuntoActionPerformed
+
+    private void btnCargarArchivoActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnCargarArchivoActionPerformed
+        cargarPuntosDesdeArchivo();
+    }//GEN-LAST:event_btnCargarArchivoActionPerformed
 
     private void btnCrearFiguraActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnCrearFiguraActionPerformed
         crearFigura();
@@ -356,6 +426,7 @@ public class FigurasUI extends javax.swing.JFrame {
 
     // Variables declaration - do not modify//GEN-BEGIN:variables
     private javax.swing.JButton btnAgregarPunto;
+    private javax.swing.JButton btnCargarArchivo;
     private javax.swing.JButton btnCrearFigura;
     private javax.swing.JButton btnLimpiar;
     private javax.swing.JButton btnSalir;
